@@ -19,6 +19,7 @@
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
 #include "cmsis_os.h"
+#include "can.h"
 #include "i2c.h"
 #include "gpio.h"
 
@@ -90,8 +91,30 @@ int main(void)
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
   MX_I2C1_Init();
+  MX_CAN_Init();
   /* USER CODE BEGIN 2 */
+	CAN_FilterTypeDef canFilter;
+  canFilter.FilterBank = 0;                       // 使用0号过滤器
+  canFilter.FilterMode = CAN_FILTERMODE_IDMASK;   // 掩码模式
+  canFilter.FilterScale = CAN_FILTERSCALE_32BIT;  // 32位宽
+  canFilter.FilterIdHigh = 0x0000;
+  canFilter.FilterIdLow = 0x0000;
+  canFilter.FilterMaskIdHigh = 0x0000;
+  canFilter.FilterMaskIdLow = 0x0000;             // 掩码全0，代表接收所有ID的报文（为了后期OTA预留）
+  canFilter.FilterFIFOAssignment = CAN_RX_FIFO0;  // 绑定到FIFO0
+  canFilter.FilterActivation = ENABLE;            // 激活过滤器
+  canFilter.SlaveStartFilterBank = 14;
 
+	// 1. 配置过滤器
+  if (HAL_CAN_ConfigFilter(&hcan, &canFilter) != HAL_OK) {
+      Error_Handler();
+  }
+  
+  // 2. 核心：正式启动 CAN 外设硬件！
+  if (HAL_CAN_Start(&hcan) != HAL_OK) {
+      Error_Handler();
+  }
+	
   /* USER CODE END 2 */
 
   /* Init scheduler */
@@ -154,7 +177,18 @@ void SystemClock_Config(void)
 }
 
 /* USER CODE BEGIN 4 */
+extern osSemaphoreId_t Sem_FaultHandle; 
 
+// 重写 HAL 库的外部中断回调函数
+void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
+{
+    // 判断是不是我们 PB12 (KEY_FAULT) 触发的中断
+    if(GPIO_Pin == KEY_FAULT_Pin)
+    {
+        // 极其轻量级的操作：只释放信号量，绝不在这里发 CAN 报文！
+        osSemaphoreRelease(Sem_FaultHandle);
+    }
+}
 /* USER CODE END 4 */
 
 /**
