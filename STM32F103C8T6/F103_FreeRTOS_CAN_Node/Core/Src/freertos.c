@@ -159,12 +159,13 @@ void MX_FREERTOS_Init(void) {
 }
 
 /* USER CODE BEGIN Header_StartDefaultTask */
-/**
-  * @brief  Function implementing the defaultTask thread.
-  * @param  argument: Not used
-  * @retval None
-  */
-/* USER CODE END Header_StartDefaultTask */
+/*
+ * 函数名：  StartDefaultTask
+ * 功能描述：系统默认任务（UI线程）。负责OLED屏幕的初始化，以及周期性（100ms）刷新显示全局变量中的车门状态、胎压数值和故障信息。
+ * 输入参数：argument --> FreeRTOS任务入口传参，本工程中未使用
+ * 输出参数：无
+ * 返回值：  无 (任务函数内部为死循环，永不返回)
+ */
 void StartDefaultTask(void *argument)
 {
   /* USER CODE BEGIN StartDefaultTask */
@@ -179,9 +180,10 @@ void StartDefaultTask(void *argument)
   for(;;)
   {
     // 2. 动态刷新车门状态
-    if (g_door_status == 0) {
+    if(g_door_status == 0){
         OLED_PrintString(6, 0, "Closed "); // 多留点空格覆盖旧字符
-    } else {
+    } 
+		else{
         OLED_PrintString(6, 0, "Opened ");
     }
 
@@ -190,9 +192,10 @@ void StartDefaultTask(void *argument)
     OLED_PrintString(10, 2, "kPa "); 
 
     // 4. 动态刷新故障状态
-    if (g_fault_code == 0) {
+    if(g_fault_code == 0){
         OLED_PrintString(6, 4, "OK   ");
-    } else {
+    } 
+		else{
         OLED_PrintString(6, 4, "ERROR");
     }
 
@@ -201,14 +204,16 @@ void StartDefaultTask(void *argument)
   }
   /* USER CODE END StartDefaultTask */
 }
+/* USER CODE END Header_StartDefaultTask */
 
 /* USER CODE BEGIN Header_App_DoorTask */
-/**
-* @brief Function implementing the Task_Door thread.
-* @param argument: Not used
-* @retval None
-*/
-/* USER CODE END Header_App_DoorTask */
+/*
+ * 函数名：  App_DoorTask
+ * 功能描述：车门状态监测任务。周期性读取车门状态（当前为翻转模拟），并调用线程安全的CAN发送接口，以 0x101 ID 周期性发送车门心跳报文。
+ * 输入参数：argument --> FreeRTOS任务入口传参，本工程中未使用
+ * 输出参数：无
+ * 返回值：  无 (任务函数内部为死循环，永不返回)
+ */
 void App_DoorTask(void *argument)
 {
   /* USER CODE BEGIN App_DoorTask */
@@ -217,7 +222,7 @@ void App_DoorTask(void *argument)
   /* Infinite loop */
   for(;;)
   {
-    // 1. 模拟车门状态的翻转变化 (演示用，比如每隔2秒开/关一次)
+    // 1. 模拟车门状态的翻转变化(演示用，比如每隔2秒开/关一次)
     // 真实场景下这里应该是读取某个 GPIO 引脚的电平
     g_door_status = !g_door_status;
 
@@ -232,14 +237,16 @@ void App_DoorTask(void *argument)
   }
   /* USER CODE END App_DoorTask */
 }
+/* USER CODE END Header_App_DoorTask */
 
 /* USER CODE BEGIN Header_App_TPMSTask */
-/**
-* @brief Function implementing the Task_TPMS thread.
-* @param argument: Not used
-* @retval None
-*/
-/* USER CODE END Header_App_TPMSTask */
+/*
+ * 函数名：  App_TPMSTask
+ * 功能描述：胎压数据采集任务。周期性读取胎压数值（当前为递增模拟），将16位数据拆分为高低字节后，通过CAN总线以 0x201 ID 发送数据帧。
+ * 输入参数：argument --> FreeRTOS任务入口传参，本工程中未使用
+ * 输出参数：无
+ * 返回值：  无 (任务函数内部为死循环，永不返回)
+ */
 void App_TPMSTask(void *argument)
 {
   /* USER CODE BEGIN App_TPMSTask */
@@ -264,14 +271,16 @@ void App_TPMSTask(void *argument)
   }
   /* USER CODE END App_TPMSTask */
 }
+/* USER CODE END Header_App_TPMSTask */
 
 /* USER CODE BEGIN Header_App_FaultTask */
-/**
-* @brief Function implementing the Task_Fault thread.
-* @param argument: Not used
-* @retval None
-*/
-/* USER CODE END Header_App_FaultTask */
+/*
+ * 函数名：  App_FaultTask
+ * 功能描述：紧急故障处理任务（最高优先级）。平时阻塞等待二值信号量，完全让出CPU；当外部按键中断释放信号量时，瞬间苏醒抢占总线，发送 0x050 ID 的最高级报警帧。
+ * 输入参数：argument --> FreeRTOS任务入口传参，本工程中未使用
+ * 输出参数：无
+ * 返回值：  无 (任务函数内部为死循环，永不返回)
+ */
 void App_FaultTask(void *argument)
 {
   /* USER CODE BEGIN App_FaultTask */
@@ -282,7 +291,7 @@ void App_FaultTask(void *argument)
   for(;;)
   {
     // 1. 死等信号量：如果没有按键按下，这个任务会永远在这里沉睡，完全不消耗 CPU
-    if (osSemaphoreAcquire(Sem_FaultHandle, osWaitForever) == osOK)
+    if (osSemaphoreAcquire(Sem_FaultHandle, osWaitForever) == osOK)//获取成功的瞬间，FreeRTOS 的底层会自动把信号量拿走
     {
         // 2. 拿到信号量了！瞬间苏醒！
         
@@ -302,20 +311,29 @@ void App_FaultTask(void *argument)
   }
   /* USER CODE END App_FaultTask */
 }
+/* USER CODE END Header_App_FaultTask */
 
 /* Private application code --------------------------------------------------*/
 /* USER CODE BEGIN Application */
 extern CAN_HandleTypeDef hcan;      // 引入 main.c 里的 CAN 句柄
 extern osMutexId_t Mutex_CAN_TxHandle; // 引入 CubeMX 生成的互斥锁句柄
 
-// 线程安全的 CAN 发送接口
+/*
+ * 函数名：		Send_CAN_Msg
+ * 功能描述：	线程安全的CAN报文发送接口。利用FreeRTOS互斥锁防止多任务同时抢占CAN外设，并等待硬件邮箱有空余时发送标准数据帧。
+ * 输入参数：	stdId --> CAN标准帧的报文ID（如 0x101, 0x201 等）
+ * 						data  --> 指向准备发送的数据数组的指针
+ * 						len   --> 要发送的数据长度（DLC），范围0~8字节
+ * 输出参数：	无
+ * 返回值：		无
+ */
 void Send_CAN_Msg(uint32_t stdId, uint8_t *data, uint8_t len)
 {
     CAN_TxHeaderTypeDef txHeader;
     uint32_t txMailbox;
 
-    txHeader.StdId = stdId;           // 我们之前定义的帧ID (比如 0x101, 0x201)
-    txHeader.ExtId = 0;
+    txHeader.StdId = stdId;           // 之前定义的帧ID (比如 0x101, 0x201)
+    txHeader.ExtId = 0;								// 扩展帧ID（不用，填0）
     txHeader.IDE = CAN_ID_STD;        // 使用标准帧
     txHeader.RTR = CAN_RTR_DATA;      // 数据帧
     txHeader.DLC = len;               // 数据长度
