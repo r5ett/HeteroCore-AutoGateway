@@ -22,8 +22,7 @@
 #include "i2c.h"
 #include "usart.h"
 #include "gpio.h"
-#include "stdio.h"
-#include "string.h"
+
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 
@@ -126,38 +125,38 @@ int main(void)
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
+	int16_t fake_ax = 0; // 1. 在 while 循环外面定义伪造的 X 轴加速度，初始值为 0
   while (1)
   {
     /* USER CODE END WHILE */
-		// 1. 用 I2C2 读取 MPU6050 的 14 字节原始数据
-		if (HAL_I2C_Mem_Read(&hi2c2, (0x68 << 1), 0x3B, I2C_MEMADD_SIZE_8BIT, raw_data, 14, 100) == HAL_OK)
-		{
-			// 2. 拼接加速度的 16 位数据
-			int16_t ax = (int16_t)(raw_data[0] << 8 | raw_data[1]);
-			int16_t ay = (int16_t)(raw_data[2] << 8 | raw_data[3]);
-			int16_t az = (int16_t)(raw_data[4] << 8 | raw_data[5]);
 
-			// 3. 拆分成 8 位装进 CAN 报文
-			TxData[0] = (uint8_t)(ax >> 8);
-			TxData[1] = (uint8_t)(ax & 0xFF);
-			TxData[2] = (uint8_t)(ay >> 8);
-			TxData[3] = (uint8_t)(ay & 0xFF);
-			TxData[4] = (uint8_t)(az >> 8);
-			TxData[5] = (uint8_t)(az & 0xFF);
-			TxData[6] = 0x00;
-			TxData[7] = 0x00;
-
-			// 4. 发送到 CAN 总线 (放进我们配好的 32 容量 FIFO 里)
-			HAL_FDCAN_AddMessageToTxFifoQ(&hfdcan1, &TxHeader, TxData);
-			
-			// 5. 顺便通过 USART2 打印到电脑看一眼
-			sprintf(msg, "Send CAN 0x301 - AX:%d AY:%d AZ:%d\r\n", ax, ay, az);
-			HAL_UART_Transmit(&huart2, (uint8_t*)msg, strlen(msg), 10);
-		}
-		
-		// 控制发送频率为 50Hz (20ms 发一次)
-		HAL_Delay(20);
     /* USER CODE BEGIN 3 */
+		// 2. 制造动态数据：每次循环让 X 轴加速度增加 100，方便我们在 Linux 端看到变化
+    fake_ax += 100; 
+    if(fake_ax > 16384) fake_ax = -16384; // 如果超过 1g 就让它折返，循环变化
+
+    // 3. 制造静态数据：模拟 Y 轴和 Z 轴静止不动的状态
+    int16_t fake_ay = -512;   // 模拟约 -0.03g
+    int16_t fake_az = 16384;  // 模拟约 1.00g (重力加速度)
+
+    // 4. 数据拆包：把 16位有符号整数 拆成 两个 8位字节 (高位在前，低位在后)
+    TxData[0] = (uint8_t)(fake_ax >> 8);
+    TxData[1] = (uint8_t)(fake_ax & 0xFF);
+    TxData[2] = (uint8_t)(fake_ay >> 8);
+    TxData[3] = (uint8_t)(fake_ay & 0xFF);
+    TxData[4] = (uint8_t)(fake_az >> 8);
+    TxData[5] = (uint8_t)(fake_az & 0xFF);
+    TxData[6] = 0x00; // 预留给未来拓展
+    TxData[7] = 0x00; 
+
+    // 5. 调用 HAL 库函数，把这 8 个字节丢进 FDCAN 的硬件发送 FIFO 队列中
+    if (HAL_FDCAN_AddMessageToTxFifoQ(&hfdcan1, &TxHeader, TxData) != HAL_OK)
+    {
+			// 如果发送失败可以加个错误处理，现在先空着
+    }
+
+    // 6. 延时 20 毫秒 (1000ms / 20ms = 50Hz 的发送频率)
+    HAL_Delay(20);
   }
   /* USER CODE END 3 */
 }

@@ -206,6 +206,7 @@ void StartDefaultTask(void *argument)
 }
 /* USER CODE END Header_StartDefaultTask */
 
+
 /* USER CODE BEGIN Header_App_DoorTask */
 /*
  * 函数名：  App_DoorTask
@@ -272,6 +273,7 @@ void App_TPMSTask(void *argument)
   /* USER CODE END App_TPMSTask */
 }
 /* USER CODE END Header_App_TPMSTask */
+
 
 /* USER CODE BEGIN Header_App_FaultTask */
 /*

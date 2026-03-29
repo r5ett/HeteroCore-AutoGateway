@@ -93,6 +93,15 @@ int main(void)
   MX_I2C1_Init();
   MX_CAN_Init();
   /* USER CODE BEGIN 2 */
+	//PC13
+	__HAL_RCC_GPIOC_CLK_ENABLE(); // 1. 给 GPIOC 供电
+  GPIO_InitTypeDef GPIO_InitStruct = {0};
+  GPIO_InitStruct.Pin = GPIO_PIN_13;
+  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP; // 2. 设为推挽输出
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+  HAL_GPIO_Init(GPIOC, &GPIO_InitStruct);     // 3. 正式初始化
+	
+	//CAN
 	CAN_FilterTypeDef canFilter;
   canFilter.FilterBank = 0;                       // 使用0号过滤器
   canFilter.FilterMode = CAN_FILTERMODE_IDMASK;   // 掩码模式
@@ -112,6 +121,11 @@ int main(void)
   
   // 2. 核心：正式启动 CAN 外设硬件！
   if (HAL_CAN_Start(&hcan) != HAL_OK) {
+      Error_Handler();
+  }
+	
+	// 3. 激活 CAN 的 FIFO0 接收中断
+  if (HAL_CAN_ActivateNotification(&hcan, CAN_IT_RX_FIFO0_MSG_PENDING) != HAL_OK) {
       Error_Handler();
   }
 	
@@ -187,6 +201,28 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
     {
         // 极其轻量级的操作：只释放信号量，绝不在这里发 CAN 报文！
         osSemaphoreRelease(Sem_FaultHandle);
+    }
+}
+
+// CAN 接收中断回调函数：每当总线上来了一帧数据，会自动跳进这里
+void HAL_CAN_RxFifo0MsgPendingCallback(CAN_HandleTypeDef *hcan)
+{
+    CAN_RxHeaderTypeDef rxHeader;
+    uint8_t rxData[8];
+
+    // 1. 从 FIFO0 邮箱里把快递（报文）拿出来
+    if (HAL_CAN_GetRxMessage(hcan, CAN_RX_FIFO0, &rxHeader, rxData) == HAL_OK)
+    {
+        // 2. 业务逻辑：假设我们规定 ID 为 0x401 的报文是用来控制 F103 的指令
+        if (rxHeader.StdId == 0x401)
+        {
+            // 动作：翻转一下板子上的 LED 灯，用来证明 F103 成功收到了电脑的指令！
+            // (假设你的 F103 核心板自带的 LED 接在 PC13，如果不是请改成你板子上的 LED 引脚)
+            HAL_GPIO_TogglePin(GPIOC, GPIO_PIN_13);
+            
+            // 进阶玩法：你甚至可以在这里把 rxData[0] 的值赋给一个全局变量，
+            // 然后在 freertos.c 的 OLED 任务里把它显示到屏幕上！
+        }
     }
 }
 /* USER CODE END 4 */
