@@ -14,7 +14,22 @@ int main() {
     struct sockaddr_can addr;
     struct ifreq ifr;
     struct can_frame frame;
+	
+	printf("[Init] Configuring CAN0 interface...\n");
+    
+    // 调用系统命令，强制先关闭再配置，确保万无一失
+    system("ip link set can0 down");
+    if (system("ip link set can0 type can bitrate 500000") != 0) {
+        perror("Failed to set bitrate");
+        return -1;
+    }
+    if (system("ip link set can0 up") != 0) {
+        perror("Failed to up can0");
+        return -1;
+    }
 
+    printf("[Init] CAN0 is UP and running at 500kbps.\n");
+	
     // 1. 创建并绑定 SocketCAN 套接字
     if ((s = socket(PF_CAN, SOCK_RAW, CAN_RAW)) < 0) {
         perror("Socket Error");

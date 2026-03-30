@@ -121,7 +121,7 @@ void MX_FREERTOS_Init(void) {
 
   /* Create the semaphores(s) */
   /* creation of Sem_Fault */
-  Sem_FaultHandle = osSemaphoreNew(1, 1, &Sem_Fault_attributes);
+  Sem_FaultHandle = osSemaphoreNew(1, 0, &Sem_Fault_attributes);
 
   /* USER CODE BEGIN RTOS_SEMAPHORES */
   /* add semaphores, ... */
@@ -334,18 +334,25 @@ void Send_CAN_Msg(uint32_t stdId, uint8_t *data, uint8_t len)
     CAN_TxHeaderTypeDef txHeader;
     uint32_t txMailbox;
 
-    txHeader.StdId = stdId;           // 之前定义的帧ID (比如 0x101, 0x201)
-    txHeader.ExtId = 0;								// 扩展帧ID（不用，填0）
-    txHeader.IDE = CAN_ID_STD;        // 使用标准帧
-    txHeader.RTR = CAN_RTR_DATA;      // 数据帧
-    txHeader.DLC = len;               // 数据长度
+    txHeader.StdId = stdId;           
+    txHeader.ExtId = 0;								
+    txHeader.IDE = CAN_ID_STD;        
+    txHeader.RTR = CAN_RTR_DATA;      
+    txHeader.DLC = len;               
 
-    // 1. 获取互斥锁（阻塞等待直到拿到锁）
-    if (osMutexAcquire(Mutex_CAN_TxHandle, osWaitForever) == osOK) 
+    // 1. 获取互斥锁（最多等 10ms，拿不到就算了，绝不死等）
+    if (osMutexAcquire(Mutex_CAN_TxHandle, 10) == osOK) 
     {
-        // 2. 等待硬件发送邮箱有空余
+        // 2. 防死锁核心：如果CAN总线断开导致邮箱满了，最多等 50ms。
+        // 如果 50ms 还没空位，直接丢弃这包数据，释放互斥锁，保全整个系统的运行！
+        uint32_t timeout = 0;
         while(HAL_CAN_GetTxMailboxesFreeLevel(&hcan) == 0) {
-            osDelay(1); // 邮箱满了就稍微让出一下CPU
+            osDelay(1);
+            timeout++;
+            if(timeout > 50) {
+                osMutexRelease(Mutex_CAN_TxHandle); // 必须先释放锁
+                return; // 直接退出，丢包
+            }
         }
         
         // 3. 把数据填入邮箱发送

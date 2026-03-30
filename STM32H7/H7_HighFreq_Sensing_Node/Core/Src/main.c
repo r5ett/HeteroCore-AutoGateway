@@ -100,62 +100,76 @@ int main(void)
   MX_USART2_UART_Init();
   MX_FDCAN1_Init();
   /* USER CODE BEGIN 2 */
-	// 1. 唤醒 MPU6050 (往 0x6B 寄存器写 0x00)
-  uint8_t wake_up_data = 0x00;
-  HAL_I2C_Mem_Write(&hi2c2, (0x68 << 1), 0x6B, I2C_MEMADD_SIZE_8BIT, &wake_up_data, 1, 100);
+	// 1. 启动 FDCAN
+  if (HAL_FDCAN_Start(&hfdcan1) != HAL_OK) {
+      Error_Handler();
+  }
 
-  // 2. 串口打印一下，确认程序跑到这里了
-  sprintf(msg, "H7 Node Ready! Starting FDCAN...\r\n");
-  HAL_UART_Transmit(&huart2, (uint8_t*)msg, strlen(msg), 100);
-
-  // 3. 配置 FDCAN 发送头部 (经典CAN，ID=0x301)
-  TxHeader.Identifier = 0x301;             
-  TxHeader.IdType = FDCAN_STANDARD_ID;     
-  TxHeader.TxFrameType = FDCAN_DATA_FRAME; 
-  TxHeader.DataLength = FDCAN_DLC_BYTES_8; 
+  // 2. 唤醒 MPU6050 (解除休眠模式)
+  // MPU6050 默认 I2C 地址是 0xD0 (如果模块上的 AD0 引脚接了 3.3V，则是 0xD2)
+  uint8_t pwr_mgmt_1 = 0x00;
+  HAL_I2C_Mem_Write(&hi2c2, 0xD0, 0x6B, I2C_MEMADD_SIZE_8BIT, &pwr_mgmt_1, 1, 100);
+  
+  // 配置 CAN 发送帧头 (ID 为 0x301)
+  FDCAN_TxHeaderTypeDef TxHeader;
+  TxHeader.Identifier = 0x301;
+  TxHeader.IdType = FDCAN_STANDARD_ID;
+  TxHeader.TxFrameType = FDCAN_DATA_FRAME;
+  TxHeader.DataLength = FDCAN_DLC_BYTES_8;
   TxHeader.ErrorStateIndicator = FDCAN_ESI_ACTIVE;
-  TxHeader.BitRateSwitch = FDCAN_BRS_OFF;  
-  TxHeader.FDFormat = FDCAN_CLASSIC_CAN;   
+  TxHeader.BitRateSwitch = FDCAN_BRS_OFF;
+  TxHeader.FDFormat = FDCAN_CLASSIC_CAN;
   TxHeader.TxEventFifoControl = FDCAN_NO_TX_EVENTS;
   TxHeader.MessageMarker = 0;
-
-  // 4. 启动 FDCAN1
-  HAL_FDCAN_Start(&hfdcan1);
+  
+  uint8_t txData[8] = {0};
+	
   /* USER CODE END 2 */
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
-	int16_t fake_ax = 0; // 1. 在 while 循环外面定义伪造的 X 轴加速度，初始值为 0
+	
   while (1)
   {
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
-		// 2. 制造动态数据：每次循环让 X 轴加速度增加 100，方便我们在 Linux 端看到变化
-    fake_ax += 100; 
-    if(fake_ax > 16384) fake_ax = -16384; // 如果超过 1g 就让它折返，循环变化
+    uint8_t mpu_buf[6]; 
+    int16_t ax, ay, az;
 
-    // 3. 制造静态数据：模拟 Y 轴和 Z 轴静止不动的状态
-    int16_t fake_ay = -512;   // 模拟约 -0.03g
-    int16_t fake_az = 16384;  // 模拟约 1.00g (重力加速度)
-
-    // 4. 数据拆包：把 16位有符号整数 拆成 两个 8位字节 (高位在前，低位在后)
-    TxData[0] = (uint8_t)(fake_ax >> 8);
-    TxData[1] = (uint8_t)(fake_ax & 0xFF);
-    TxData[2] = (uint8_t)(fake_ay >> 8);
-    TxData[3] = (uint8_t)(fake_ay & 0xFF);
-    TxData[4] = (uint8_t)(fake_az >> 8);
-    TxData[5] = (uint8_t)(fake_az & 0xFF);
-    TxData[6] = 0x00; // 预留给未来拓展
-    TxData[7] = 0x00; 
-
-    // 5. 调用 HAL 库函数，把这 8 个字节丢进 FDCAN 的硬件发送 FIFO 队列中
-    if (HAL_FDCAN_AddMessageToTxFifoQ(&hfdcan1, &TxHeader, TxData) != HAL_OK)
+    // 尝试读取 MPU6050
+    if (HAL_I2C_Mem_Read(&hi2c2, 0xD0, 0x3B, I2C_MEMADD_SIZE_8BIT, mpu_buf, 6, 100) == HAL_OK)
     {
-			// 如果发送失败可以加个错误处理，现在先空着
+        // 读取成功：打包真实数据
+        ax = (int16_t)((mpu_buf[0] << 8) | mpu_buf[1]);
+        ay = (int16_t)((mpu_buf[2] << 8) | mpu_buf[3]);
+        az = (int16_t)((mpu_buf[4] << 8) | mpu_buf[5]);
+
+        txData[0] = (ax >> 8) & 0xFF;
+        txData[1] = ax & 0xFF;
+        txData[2] = (ay >> 8) & 0xFF;
+        txData[3] = ay & 0xFF;
+        txData[4] = (az >> 8) & 0xFF;
+        txData[5] = az & 0xFF;
+        txData[6] = 0x00; 
+        txData[7] = 0x00; 
+    }
+    else 
+    {
+        // 🚨 读取失败：打包全 EE 的报警数据
+        txData[0] = 0xEE;
+        txData[1] = 0xEE;
+        txData[2] = 0xEE;
+        txData[3] = 0xEE;
+        txData[4] = 0xEE;
+        txData[5] = 0xEE;
+        txData[6] = 0xEE; 
+        txData[7] = 0xEE; 
     }
 
-    // 6. 延时 20 毫秒 (1000ms / 20ms = 50Hz 的发送频率)
+    // ⚠️ 无论 I2C 成不成功，都把 CAN 报文强制发出去！
+    HAL_FDCAN_AddMessageToTxFifoQ(&hfdcan1, &TxHeader, txData);
+
     HAL_Delay(20);
   }
   /* USER CODE END 3 */
