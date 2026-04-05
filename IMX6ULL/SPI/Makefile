@@ -10,3 +10,5 @@ clean:
 	rm -f spi_test
 
 obj-m += spi_drv.o
+obj-m += spi_drv_iio.o
+obj-m += spi_drv_dma.o

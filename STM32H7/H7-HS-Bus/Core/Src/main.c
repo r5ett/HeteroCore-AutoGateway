@@ -19,6 +19,7 @@
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
 #include "dma.h"
+#include "i2c.h"
 #include "spi.h"
 #include "gpio.h"
 
@@ -34,7 +35,9 @@
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
-
+#define MPU6050_ADDR        0xD0   // MPU6050 的 I2C 地址 (AD0接地时为0x68，左移一位是0xD0)
+#define MPU6050_REG_PWR1    0x6B   // 电源管理寄存器1 (用于唤醒设备)
+#define MPU6050_REG_ACCEL_X 0x3B   // 加速度计 X 轴高位寄存器 (数据起始地址)
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -48,6 +51,7 @@
 #define TEST_LEN 32
 uint8_t spi_tx_buf[TEST_LEN] = {0x11, 0x22, 0x33, 0x44}; // H7发给主机的测试数据
 uint8_t spi_rx_buf[TEST_LEN] = {0};                      // 接收主机的数据
+volatile uint8_t spi_tx_complete = 0;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -96,23 +100,21 @@ int main(void)
   MX_GPIO_Init();
   MX_DMA_Init();
   MX_SPI2_Init();
+  MX_I2C2_Init();
   /* USER CODE BEGIN 2 */
-	// 1. 确保引脚初始为高电平
-	HAL_GPIO_WritePin(GPIOF, GPIO_PIN_0, GPIO_PIN_SET); 
+	uint8_t pwr_cmd = 0x00;
+  // 向 0x6B 寄存器写入 0x00，解除休眠模式
+  HAL_I2C_Mem_Write(&hi2c2, MPU6050_ADDR, MPU6050_REG_PWR1, 1, &pwr_cmd, 1, 100);
+  // ==========================================================
+
+  // 1. 确保引脚初始为高电平 (你之前的代码，注意是 PD6 了)
+  HAL_GPIO_WritePin(GPIOD, GPIO_PIN_6, GPIO_PIN_SET); 
 	
-	// 2. 开启 SPI DMA 监听
-	/*
-	 * DMA 同时收发 等主机（IMX6ULL）发时钟、发数据过来时触发
-	 * &hspi2：使用 SPI2
-	 * spi_tx_buf：发送数据缓存
-	 * spi_rx_buf：接收数据缓存
-	 * TEST_LEN：传输字节长度
-	 */
-	HAL_SPI_TransmitReceive_DMA(&hspi2, spi_tx_buf, spi_rx_buf, TEST_LEN);
+  // 2. 开启 SPI DMA 监听
+  HAL_SPI_TransmitReceive_DMA(&hspi2, spi_tx_buf, spi_rx_buf, TEST_LEN);
 	
-	// 3. 拉低引脚，产生下降沿！触发 6ULL 的中断去读数据
-	HAL_GPIO_WritePin(GPIOF, GPIO_PIN_0, GPIO_PIN_RESET);
-	
+  // 3. 拉低引脚，产生下降沿！触发 6ULL 的中断去读数据
+  HAL_GPIO_WritePin(GPIOD, GPIO_PIN_6, GPIO_PIN_RESET);
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -120,7 +122,28 @@ int main(void)
   while (1)
   {
     /* USER CODE END WHILE */
+		if (spi_tx_complete == 1) 
+		{
+			spi_tx_complete = 0; // 清除标志位
 
+			// 1. [核心] 在这里安全地读取 MPU6050，不会阻塞任何中断！
+			HAL_I2C_Mem_Read(&hi2c2, MPU6050_ADDR, MPU6050_REG_ACCEL_X, 1, 
+											 &spi_tx_buf[0], 6, 100);
+
+			// 2. 清空 SPI 状态
+			HAL_SPI_Abort(&hspi2);
+			
+			// 3. 重新挂载 DMA 监听
+			if (HAL_SPI_TransmitReceive_DMA(&hspi2, spi_tx_buf, spi_rx_buf, TEST_LEN) == HAL_OK)
+			{
+					// 4. 准备就绪，拉低引脚呼叫 6ULL！
+					HAL_GPIO_WritePin(GPIOD, GPIO_PIN_6, GPIO_PIN_RESET);
+			}
+			else
+			{
+					Error_Handler(); 
+			}
+		}
     /* USER CODE BEGIN 3 */
   }
   /* USER CODE END 3 */
@@ -154,13 +177,13 @@ void SystemClock_Config(void)
   RCC_OscInitStruct.PLL.PLLState = RCC_PLL_ON;
   RCC_OscInitStruct.PLL.PLLSource = RCC_PLLSOURCE_HSI;
   RCC_OscInitStruct.PLL.PLLM = 4;
-  RCC_OscInitStruct.PLL.PLLN = 9;
+  RCC_OscInitStruct.PLL.PLLN = 10;
   RCC_OscInitStruct.PLL.PLLP = 2;
   RCC_OscInitStruct.PLL.PLLQ = 2;
   RCC_OscInitStruct.PLL.PLLR = 2;
   RCC_OscInitStruct.PLL.PLLRGE = RCC_PLL1VCIRANGE_3;
   RCC_OscInitStruct.PLL.PLLVCOSEL = RCC_PLL1VCOMEDIUM;
-  RCC_OscInitStruct.PLL.PLLFRACN = 3072;
+  RCC_OscInitStruct.PLL.PLLFRACN = 0;
   if (HAL_RCC_OscConfig(&RCC_OscInitStruct) != HAL_OK)
   {
     Error_Handler();
@@ -175,7 +198,7 @@ void SystemClock_Config(void)
   RCC_ClkInitStruct.SYSCLKDivider = RCC_SYSCLK_DIV1;
   RCC_ClkInitStruct.AHBCLKDivider = RCC_HCLK_DIV1;
   RCC_ClkInitStruct.APB3CLKDivider = RCC_APB3_DIV1;
-  RCC_ClkInitStruct.APB1CLKDivider = RCC_APB1_DIV1;
+  RCC_ClkInitStruct.APB1CLKDivider = RCC_APB1_DIV2;
   RCC_ClkInitStruct.APB2CLKDivider = RCC_APB2_DIV1;
   RCC_ClkInitStruct.APB4CLKDivider = RCC_APB4_DIV1;
 
@@ -196,25 +219,11 @@ void HAL_SPI_TxRxCpltCallback(SPI_HandleTypeDef *hspi)
 {
 	if (hspi->Instance == SPI2)
 	{
-		// 1. 数据被读走了，立马把中断线拉高（恢复平静）
-		HAL_GPIO_WritePin(GPIOF, GPIO_PIN_0, GPIO_PIN_SET);
+		// 1. 数据被读走了，立马把中断线拉高
+		HAL_GPIO_WritePin(GPIOD, GPIO_PIN_6, GPIO_PIN_SET);
 
-		// 2. 改变数据，模拟采集到了新的波形
-		spi_tx_buf[0]++; 
-		
-		// 3. 强制清空残余状态 (我们之前加的保险机制)
-		HAL_SPI_Abort(hspi);
-		
-		// 4. 重新挂载 DMA 监听下一次读取
-		if (HAL_SPI_TransmitReceive_DMA(&hspi2, spi_tx_buf, spi_rx_buf, TEST_LEN) == HAL_OK)
-		{
-				// 5. DMA 挂载成功后，再次拉低引脚！通知 6ULL 新数据又做好了！
-				HAL_GPIO_WritePin(GPIOF, GPIO_PIN_0, GPIO_PIN_RESET);
-		}
-		else
-		{
-				Error_Handler(); 
-		}
+		// 2. 设置标志位，通知 while(1) 去读 I2C（千万别在这里读！）
+		spi_tx_complete = 1;
 	}
 }
 
@@ -226,21 +235,11 @@ void HAL_SPI_TxRxCpltCallback(SPI_HandleTypeDef *hspi)
  */
 void HAL_SPI_ErrorCallback(SPI_HandleTypeDef *hspi)
 {
-    if (hspi->Instance == SPI2)
-    {
-        // 1. 出错时，先把引脚拉高，恢复平静
-        HAL_GPIO_WritePin(GPIOF, GPIO_PIN_0, GPIO_PIN_SET);
-        
-        // 2. 清空出错的 SPI 状态
-        HAL_SPI_Abort(&hspi2);
-        
-        // 3. 重新启动 DMA 监听
-        if(HAL_SPI_TransmitReceive_DMA(&hspi2, spi_tx_buf, spi_rx_buf, TEST_LEN) == HAL_OK)
-        {
-            // 4. 起死回生：再次拉低引脚！通知 Linux 刚才出错了，我们重新发！
-            HAL_GPIO_WritePin(GPIOF, GPIO_PIN_0, GPIO_PIN_RESET);
-        }
-    }
+	if (hspi->Instance == SPI2)
+	{
+		HAL_GPIO_WritePin(GPIOD, GPIO_PIN_6, GPIO_PIN_SET);
+		spi_tx_complete = 1; // 出错了也丢给主循环去复位
+	}
 }
 /* USER CODE END 4 */
 
