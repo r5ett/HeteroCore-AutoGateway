@@ -45,7 +45,7 @@
 /* Private variables ---------------------------------------------------------*/
 
 /* USER CODE BEGIN PV */
-#define TEST_LEN 4
+#define TEST_LEN 32
 uint8_t spi_tx_buf[TEST_LEN] = {0x11, 0x22, 0x33, 0x44}; // H7发给主机的测试数据
 uint8_t spi_rx_buf[TEST_LEN] = {0};                      // 接收主机的数据
 /* USER CODE END PV */
@@ -97,7 +97,10 @@ int main(void)
   MX_DMA_Init();
   MX_SPI2_Init();
   /* USER CODE BEGIN 2 */
-	// 开启第一次SPI DMA接收
+	// 1. 确保引脚初始为高电平
+	HAL_GPIO_WritePin(GPIOF, GPIO_PIN_0, GPIO_PIN_SET); 
+	
+	// 2. 开启 SPI DMA 监听
 	/*
 	 * DMA 同时收发 等主机（IMX6ULL）发时钟、发数据过来时触发
 	 * &hspi2：使用 SPI2
@@ -106,6 +109,10 @@ int main(void)
 	 * TEST_LEN：传输字节长度
 	 */
 	HAL_SPI_TransmitReceive_DMA(&hspi2, spi_tx_buf, spi_rx_buf, TEST_LEN);
+	
+	// 3. 拉低引脚，产生下降沿！触发 6ULL 的中断去读数据
+	HAL_GPIO_WritePin(GPIOF, GPIO_PIN_0, GPIO_PIN_RESET);
+	
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -187,17 +194,28 @@ void SystemClock_Config(void)
  */
 void HAL_SPI_TxRxCpltCallback(SPI_HandleTypeDef *hspi)
 {
-    if (hspi->Instance == SPI2)
-    {
-        // 此时 spi_rx_buf 已经收到了 IMX6ULL 发来的 4 个字节
-        // 可以加上断点或打印出来查看
-        
-        // 重新配置下一次的发送数据 (可选)
-        spi_tx_buf[0]++; 
-        
-        // 再次开启中断监听
-        HAL_SPI_TransmitReceive_DMA(&hspi2, spi_tx_buf, spi_rx_buf, TEST_LEN);
-    }
+	if (hspi->Instance == SPI2)
+	{
+		// 1. 数据被读走了，立马把中断线拉高（恢复平静）
+		HAL_GPIO_WritePin(GPIOF, GPIO_PIN_0, GPIO_PIN_SET);
+
+		// 2. 改变数据，模拟采集到了新的波形
+		spi_tx_buf[0]++; 
+		
+		// 3. 强制清空残余状态 (我们之前加的保险机制)
+		HAL_SPI_Abort(hspi);
+		
+		// 4. 重新挂载 DMA 监听下一次读取
+		if (HAL_SPI_TransmitReceive_DMA(&hspi2, spi_tx_buf, spi_rx_buf, TEST_LEN) == HAL_OK)
+		{
+				// 5. DMA 挂载成功后，再次拉低引脚！通知 6ULL 新数据又做好了！
+				HAL_GPIO_WritePin(GPIOF, GPIO_PIN_0, GPIO_PIN_RESET);
+		}
+		else
+		{
+				Error_Handler(); 
+		}
+	}
 }
 
 /*
@@ -210,9 +228,18 @@ void HAL_SPI_ErrorCallback(SPI_HandleTypeDef *hspi)
 {
     if (hspi->Instance == SPI2)
     {
+        // 1. 出错时，先把引脚拉高，恢复平静
+        HAL_GPIO_WritePin(GPIOF, GPIO_PIN_0, GPIO_PIN_SET);
+        
+        // 2. 清空出错的 SPI 状态
         HAL_SPI_Abort(&hspi2);
-        // 这里也要改成 DMA
-        HAL_SPI_TransmitReceive_DMA(&hspi2, spi_tx_buf, spi_rx_buf, TEST_LEN);
+        
+        // 3. 重新启动 DMA 监听
+        if(HAL_SPI_TransmitReceive_DMA(&hspi2, spi_tx_buf, spi_rx_buf, TEST_LEN) == HAL_OK)
+        {
+            // 4. 起死回生：再次拉低引脚！通知 Linux 刚才出错了，我们重新发！
+            HAL_GPIO_WritePin(GPIOF, GPIO_PIN_0, GPIO_PIN_RESET);
+        }
     }
 }
 /* USER CODE END 4 */

@@ -9,3 +9,4 @@ clean:
 	rm -rf modules.order
 	rm -f spi_test
 
+obj-m += spi_drv.o
