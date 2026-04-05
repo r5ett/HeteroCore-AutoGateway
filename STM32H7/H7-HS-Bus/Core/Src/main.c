@@ -115,46 +115,52 @@ int main(void)
 	
   // 3. 拉低引脚，产生下降沿！触发 6ULL 的中断去读数据
   HAL_GPIO_WritePin(GPIOD, GPIO_PIN_6, GPIO_PIN_RESET);
+  /* USER CODE BEGIN 2 */
+  uint32_t last_heartbeat = HAL_GetTick();
   /* USER CODE END 2 */
 
   /* Infinite loop */
-  /* USER CODE BEGIN WHILE */
   while (1)
   {
-    /* USER CODE END WHILE */
-		if (spi_tx_complete == 1) 
+    /* 1. 正常流程：当上一帧 SPI 传输完成后 (由回调函数置位) */
+    if (spi_tx_complete == 1) 
+    {
+        spi_tx_complete = 0;
+
+        // A. 读取 MPU6050 真实数据 (前 6 字节)
+        HAL_I2C_Mem_Read(&hi2c2, MPU6050_ADDR, MPU6050_REG_ACCEL_X, 1, &spi_tx_buf[0], 6, 100);
+
+        // B. 计算校验和 (第 32 字节)
+        uint8_t checksum = 0;
+        for(int i = 0; i < 31; i++) checksum += spi_tx_buf[i];
+        spi_tx_buf[31] = checksum;
+
+        // C. [关键] 高速通信必须刷 Cache，否则 DMA 发出的是旧数据
+        uint32_t aligned_addr = (uint32_t)spi_tx_buf & ~0x1F;
+        SCB_CleanDCache_by_Addr((uint32_t*)aligned_addr, 64);
+
+        // D. 重新挂载 DMA 监听
+        HAL_SPI_Abort(&hspi2);
+        if (HAL_SPI_TransmitReceive_DMA(&hspi2, spi_tx_buf, spi_rx_buf, TEST_LEN) == HAL_OK)
         {
-            spi_tx_complete = 0; // 清除标志位
-
-            // 1. 读取 MPU6050
-            HAL_I2C_Mem_Read(&hi2c2, MPU6050_ADDR, MPU6050_REG_ACCEL_X, 1, 
-                             &spi_tx_buf[0], 6, 100);
-
-            // 2. 计算校验和
-            uint8_t checksum = 0;
-            for(int i = 0; i < 31; i++) {
-                checksum += spi_tx_buf[i];
-            }
-            spi_tx_buf[31] = checksum;
-
-            // ================== [核心修改：终极 Cache 刷新] ==================
-            // 向下对齐到 32 字节边界，并且强制刷 64 字节，绝对覆盖完整的数组！
-            #if defined(__DCACHE_PRESENT) && (__DCACHE_PRESENT == 1U)
-            uint32_t aligned_addr = (uint32_t)spi_tx_buf & ~0x1F; 
-            SCB_CleanDCache_by_Addr((uint32_t*)aligned_addr, 64); 
-            #endif
-            // =================================================================
-
-            // 3. 重启 DMA
-            HAL_SPI_Abort(&hspi2);
-            if (HAL_SPI_TransmitReceive_DMA(&hspi2, spi_tx_buf, spi_rx_buf, TEST_LEN) == HAL_OK)
-            {
-                HAL_GPIO_WritePin(GPIOD, GPIO_PIN_6, GPIO_PIN_RESET);
-            }
+            // E. 准备就绪，拉低引脚触发 Linux
+            HAL_GPIO_WritePin(GPIOD, GPIO_PIN_6, GPIO_PIN_RESET);
+            last_heartbeat = HAL_GetTick();
         }
+    }
+    else 
+    {
+        /* 2. 异常恢复：如果 100ms 没收到 Linux 的读取，强行重发下降沿 */
+        if (HAL_GetTick() - last_heartbeat > 100)
+        {
+            HAL_GPIO_WritePin(GPIOD, GPIO_PIN_6, GPIO_PIN_SET);
+            HAL_Delay(1);
+            HAL_GPIO_WritePin(GPIOD, GPIO_PIN_6, GPIO_PIN_RESET);
+            last_heartbeat = HAL_GetTick();
+        }
+    }
     /* USER CODE BEGIN 3 */
   }
-  /* USER CODE END 3 */
 }
 
 /**

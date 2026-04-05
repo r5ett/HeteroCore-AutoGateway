@@ -99,7 +99,7 @@ static int h7_gateway_probe(struct spi_device *spi)
     int ret;
     spi->mode = SPI_MODE_0;
     spi->bits_per_word = 8;
-    spi->max_speed_hz = 1000000;
+    spi->max_speed_hz = 20000000;
     ret = spi_setup(spi);
     if (ret < 0) return ret;
 

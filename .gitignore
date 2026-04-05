@@ -1,5 +1,5 @@
-# ==========================================
-# C/C++ & 嵌入式通用编译产物
+[cite: 1] # ==========================================
+# 1. 通用编译产物
 # ==========================================
 *.o
 *.d
@@ -7,53 +7,34 @@
 *.bin
 *.hex
 *.map
-*.lst
-*.axf
-*.out
-*.su
-*.iex
-*.htm
-*.lnp
-*.dep
-*.crf
+*.ko
+*.mod.c
+*.symvers
+*.order
+.tmp_versions/
+.*.cmd
 
 # ==========================================
-# Keil MDK-ARM 专属过滤
-# (保留 .uvprojx 工程文件，过滤本地用户配置和编译输出)
+# 2. Linux 编译出的应用二进制
+# ==========================================
+spi_test
+central_gateway
+
+# ==========================================
+# 3. STM32 (Keil/CubeMX) 专属过滤
 # ==========================================
 *.uvguix.*
 *.uvoptx
-*/MDK-ARM/DebugConfig/
-*/MDK-ARM/RTE/
-*/MDK-ARM/Listings/
-*/MDK-ARM/Objects/
-# 如果有同名的无后缀编译文件夹，也将其过滤
-*/MDK-ARM/*/
-
-# ==========================================
-# STM32CubeMX 生成的临时文件
-# ==========================================
+*/DebugConfig/
+*/RTE/
+*/Listings/
+*/Objects/
 *.bak
 *.tmp
-*.log
 
 # ==========================================
-# CMake & Makefiles (用于未来 IMX6ULL 的 Linux C++ 开发)
+# 4. IDE 与系统临时文件
 # ==========================================
-build/
-CMakeCache.txt
-CMakeFiles/
-cmake_install.cmake
-compile_commands.json
-
-# ==========================================
-# 操作系统与编辑器生成的临时文件
-# ==========================================
-.DS_Store
-Thumbs.db
-.vscode/*
-!.vscode/settings.json
-!.vscode/tasks.json
-!.vscode/launch.json
+.vscode/
 .history/
-*.code-workspace
+.DS_Store
