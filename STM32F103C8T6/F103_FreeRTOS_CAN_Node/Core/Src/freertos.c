@@ -286,29 +286,39 @@ void App_TPMSTask(void *argument)
 void App_FaultTask(void *argument)
 {
   /* USER CODE BEGIN App_FaultTask */
-  // 定义一帧极其严重的故障码 (比如 8个字节全为 0xFF)
+  // 1. 定义一帧极其严重的故障码 (全 0xFF)
   uint8_t fault_payload[8] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
   
+  // ==================== [新增] ====================
+  // 2. 定义一帧解除故障的恢复码 (全 0x00，对应网关里的 alarm_active = 0)
+  uint8_t clear_payload[8] = {0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
+  // ================================================
+
   /* Infinite loop */
   for(;;)
   {
-    // 1. 死等信号量：如果没有按键按下，这个任务会永远在这里沉睡，完全不消耗 CPU
-    if (osSemaphoreAcquire(Sem_FaultHandle, osWaitForever) == osOK)//获取成功的瞬间，FreeRTOS 的底层会自动把信号量拿走
+    // 死等信号量：如果没有按键按下，这个任务会永远在这里沉睡
+    if (osSemaphoreAcquire(Sem_FaultHandle, osWaitForever) == osOK)
     {
-        // 2. 拿到信号量了！瞬间苏醒！
-        
-        // 更新全局变量，让你的 OLED 任务把 Fault: 变成 ERROR
+        // 拿到信号量，更新本地 OLED 显示 ERROR
         g_fault_code = 1; 
 
-        // 3. 抢占总线，发送最高优先级 ID (0x050) 的故障报文
+        // 3. 抢占总线，发送故障报文 (触发 Linux 网关变红)
         Send_CAN_Msg(0x050, fault_payload, 8);
         
-        // 4. 硬件按键消抖延时 (防止手抖一次触发好几帧)
+        // 硬件按键消抖延时 
         osDelay(200); 
         
-        // 演示用：过2秒后把故障码清零，OLED 恢复 OK
+        // 延时 2 秒，模拟故障持续时间
         osDelay(2000);
+        
+        // 4. 故障恢复，本地 OLED 恢复 OK
         g_fault_code = 0;
+        
+        // ==================== [新增] ====================
+        // 5. 通知 Linux 网关：警报解除！(触发 Linux 网关变绿)
+        Send_CAN_Msg(0x050, clear_payload, 8);
+        // ================================================
     }
   }
   /* USER CODE END App_FaultTask */
