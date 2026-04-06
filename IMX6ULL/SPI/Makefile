@@ -5,12 +5,15 @@ all:
 	$(CROSS_COMPILE)gcc -o spi_test spi_test.c
 	$(CROSS_COMPILE)gcc -o central_gateway central_gateway.c
 	$(CROSS_COMPILE)gcc -o iio iio.c
+	$(CROSS_COMPILE)gcc -o mmap mmap.c
+
 clean:
 	make -C $(KERN_DIR) M=$(shell pwd) modules clean
 	rm -rf modules.order
 	rm -f spi_test
 	rm -f central_gateway
 	rm -f iio
+	rm -f mmap
 
 obj-m += spi_drv.o
 obj-m += spi_drv_iio.o
