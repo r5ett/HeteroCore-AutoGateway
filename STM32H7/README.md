@@ -1,9 +1,3 @@
----
-
-### 3. 子目录：`STM32H7`
-**路径：** `/STM32H7/README.md`
-
-```markdown
 # STM32H7 高速感知节点
 
 本节点负责高频采集 MPU6050 姿态传感器，并通过 SPI 总线高速透传至网关。
@@ -20,3 +14,12 @@
 | 0x00 | 6 字节 | MPU6050 原始加速度 (X, Y, Z) |
 | 0x06 | 25 字节 | 填充位/保留位 |
 | 0x1F | 1 字节 | Checksum (前 31 字节累加和) |
+
+## 硬件连接
+PF0<--->I2C2_SDA
+PF1<--->I2C2_SCL
+PI0<--->SPI2_NSS
+PI1<--->SPI2_SCK
+PI2<--->SPI2_MISO
+PI3<--->SPI2_MOSI
+PD6<--->SPI_INT

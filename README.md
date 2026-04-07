@@ -44,7 +44,7 @@
 故障自愈机制：实现了报警触发、锁存以及 2 秒后自动发送清零帧的逻辑闭环。
 
 📂 目录结构说明
-IMX6ULL_Linux_Gateway/ : 包含 Linux 字符设备驱动（SPI DMA 版）及 select 多路复用网关程序。
+IMX6ULL_Linux_Gateway/ : 包含 Linux 字符设备驱动及 select 多路复用网关程序。
 
 H7_HighSpeed_Node/ : STM32H7 姿态感知节点工程，包含 I2C 驱动、D-Cache 同步逻辑及 SPI 从机通信。
 
